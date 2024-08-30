@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSGN - Web Application</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        #drawingCanvas {
+            border: 1px solid black;
+            background-color: white;
+            display: block;
+            margin: 10px auto;
+            cursor: grab;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin: 10px;
+        }
+        .controls button {
+            margin: 0 5px;
+        }
+        .app-container, .welcome-screen {
+            display: none;
+        }
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="welcome-screen">
+        <div class="logo">DSGN</div>
+    </div>
+
+    <div class="app-container">
+        <header class="toolbar">
+            <div class="toolbar-item">
+                <button id="undo">Undo (0)</button>
+                <button id="redo">Redo (0)</button>
+            </div>
+            <div class="toolbar-item zoom-controls">
+                <button id="zoom-in">+</button>
+                <button id="zoom-out">-</button>
+                <span id="zoom-percent">100%</span>
+                <button id="reset-zoom">Reset Zoom</button>
+                <button id="toggle-grid">Toggle Grid</button>
+            </div>
+            <div class="toolbar-item">
+                <button id="fullscreen">Full Screen</button>
+            </div>
+        </header>
+
+        <div class="workspace">
+            <aside class="tools-panel">
+                <button id="brush-tool">Brush</button>
+                <button id="eraser-tool">Eraser</button>
+                <button id="move-tool">Move</button>
+                <button id="shape-tool">Shapes</button>
+                <button id="color-picker">Color Picker</button>
+                <button id="paint-bucket">Paint Bucket</button>
+                <button id="text-tool">Text</button>
+                <button id="clone-stamp">Clone Stamp</button>
+                <button id="selection-tool">Select</button>
+                <button id="import-image">Import Image</button>
+                <button id="export-image">Export to JPG</button>
+            </aside>
+
+            <main class="canvas-area">
+                <canvas id="drawingCanvas" width="1280" height="600"></canvas>
+            </main>
+
+            <aside class="layers-panel">
+                <h2>Layers</h2>
+                <ul id="layerList">
+                    <!-- Layer List -->
+                </ul>
+            </aside>
+        </div>
+
+        <footer class="properties-bar">
+            <h2>Properties</h2>
+            <!-- Properties for selected tool -->
+        </footer>
+    </div>
+
+    <input type="file" id="file-input" style="display: none;" accept="image/*">
+
+    <script src="js/index.js"></script>
+    <script>
+    window.onload = function() {
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        let zoomLevel = 100;
+        let isDragging = false;
+        let startX, startY;
+        let gridVisible = false;
+        const zoomPercent = document.getElementById('zoom-percent');
+        let undoCounter = 0;
+        let redoCounter = 0;
+        let activeTool = null;
+        let isTextWriting = false;
+        let textInput;
+
+        const tools = {
+            brush: 'brush-tool',
+            eraser: 'eraser-tool',
+            move: 'move-tool',
+            shape: 'shape-tool',
+            colorPicker: 'color-picker',
+            paintBucket: 'paint-bucket',
+            text: 'text-tool',
+            cloneStamp: 'clone-stamp',
+            selection: 'selection-tool'
+        };
+
+        function initCanvas() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function exportImage() {
+            const dataURL = canvas.toDataURL('image/jpeg');
+            const link = document.createElement('a');
+            link.href = dataURL;
+            link.download = 'drawing.jpg';
+            link.click();
+        }
+
+        function importImage() {
+            const input = document.getElementById('file-input');
+            input.addEventListener('change', function(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = new Image();
+                        img.onload = function() {
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+            input.click();
+        }
+
+        function zoomIn() {
+            zoomLevel = Math.min(zoomLevel + 10, 200);
+            zoomPercent.textContent = zoomLevel + '%';
+            canvas.style.transform = `scale(${zoomLevel / 100})`;
+        }
+
+        function zoomOut() {
+            zoomLevel = Math.max(zoomLevel - 10, 10);
+            zoomPercent.textContent = zoomLevel + '%';
+            canvas.style.transform = `scale(${zoomLevel / 100})`;
+        }
+
+        function resetZoom() {
+            zoomLevel = 100;
+            zoomPercent.textContent = '100%';
+            canvas.style.transform = 'scale(1)';
+        }
+
+        function toggleGrid() {
+            gridVisible = !gridVisible;
+            drawGrid();
+        }
+
+        function drawGrid() {
+            if (gridVisible) {
+                ctx.strokeStyle = '#ccc';
+                ctx.lineWidth = 0.5;
+                for (let x = 10; x < canvas.width; x += 10) {
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, canvas.height);
+                }
+                for (let y = 10; y < canvas.height; y += 10) {
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                }
+                ctx.stroke();
+            } else {
+                initCanvas();
+            }
+        }
+
+        function undo() {
+            if (undoCounter > 0) {
+                undoCounter--;
+                updateUndoRedoCounters();
+                // Implement undo functionality here
+            }
+        }
+
+        function redo() {
+            if (redoCounter > 0) {
+                redoCounter--;
+                updateUndoRedoCounters();
+                // Implement redo functionality here
+            }
+        }
+
+        function updateUndoRedoCounters() {
+            const undoElement = document.getElementById('undo');
+            const redoElement = document.getElementById('redo');
+            
+            if (undoElement && redoElement) {
+                undoElement.textContent = `Undo (${undoCounter})`;
+                redoElement.textContent = `Redo (${redoCounter})`;
+            }
+        }
+
+        function selectTool(tool) {
+            setActiveTool(tool);
+            console.log(`${tool} selected`);
+        }
+
+        function setActiveTool(toolName) {
+            Object.values(tools).forEach(toolId => {
+                document.getElementById(toolId).classList.remove('active');
+            });
+
+            const selectedTool = document.getElementById(toolName);
+            if (selectedTool) {
+                selectedTool.classList.add('active');
+            }
+
+            activeTool = toolName;
+            updateCanvasForActiveTool();
+        }
+
+        function updateCanvasForActiveTool() {
+            if (activeTool === tools.text) {
+                canvas.style.cursor = 'text';
+            } else {
+                canvas.style.cursor = 'grab';
+            }
+        }
+
+        function fullscreenMode() {
+            if (!document.fullscreenElement) {
+                canvas.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function createTextInput(x, y) {
+            textInput = document.createElement('input');
+            textInput.type = 'text';
+            textInput.style.position = 'absolute';
+            textInput.style.left = `${x}px`;
+            textInput.style.top = `${y}px`;
+            textInput.style.fontSize = '16px';
+            textInput.style.border = 'none';
+            textInput.style.outline = 'none';
+            textInput.style.background = 'transparent';
+            textInput.style.color = 'black';
+            document.body.appendChild(textInput);
+            textInput.focus();
+
+            textInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    drawTextOnCanvas(textInput.value, x, y);
+                    document.body.removeChild(textInput);
+                    textInput = null;
+                    isTextWriting = false;
+                }
+            });
+
+            textInput.addEventListener('blur', function () {
+                if (textInput) {
+                    drawTextOnCanvas(textInput.value, x, y);
+                    document.body.removeChild(textInput);
+                    textInput = null;
+                    isTextWriting = false;
+                }
+            });
+        }
+
+        function drawTextOnCanvas(text, x, y) {
+            ctx.font = '16px Arial';
+            ctx.fillStyle = 'black';
+            ctx.fillText(text, x - canvas.offsetLeft, y - canvas.offsetTop);
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (activeTool === tools.move && zoomLevel > 100) {
+                isDragging = true;
+                startX = e.clientX - canvas.offsetLeft;
+                startY = e.clientY - canvas.offsetTop;
+                canvas.style.cursor = 'grabbing';
+            } else if (activeTool === tools.text && !isTextWriting) {
+                isTextWriting = true;
+                createTextInput(e.clientX, e.clientY);
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - canvas.offsetLeft - startX;
+                const dy = e.clientY - canvas.offsetTop - startY;
+                canvas.style.transformOrigin = `${dx}px ${dy}px`;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        document.getElementById('export-image').onclick = exportImage;
+        document.getElementById('import-image').onclick = importImage;
+        document.getElementById('zoom-in').onclick = zoomIn;
+        document.getElementById('zoom-out').onclick = zoomOut;
+        document.getElementById('reset-zoom').onclick = resetZoom;
+        document.getElementById('toggle-grid').onclick = toggleGrid;
+        document.getElementById('undo').onclick = undo;
+        document.getElementById('redo').onclick = redo;
+        document.getElementById('fullscreen').onclick = fullscreenMode;
+
+        Object.keys(tools).forEach(tool => {
+            const toolElement = document.getElementById(tools[tool]);
+            if (toolElement) {
+                toolElement.onclick = () => selectTool(tools[tool]);
+            }
+        });
+
+        initCanvas();
+    };
+    
+    </script>
+</body>
+</html>
